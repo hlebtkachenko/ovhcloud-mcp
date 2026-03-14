@@ -1,19 +1,26 @@
 {
   "name": "ovhcloud-mcp",
-  "version": "1.0.0",
-  "description": "OVHcloud MCP server — VPS, domains, DNS, billing",
+  "version": "2.0.0",
+  "description": "OVHcloud MCP server — VPS, domains, DNS, billing, SSH, API explorer",
   "type": "module",
   "main": "dist/index.js",
+  "license": "MIT",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.0",
+    "ssh2": "^1.17.0",
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@jest/globals": "^30.3.0",
     "@types/node": "^22.0.0",
+    "@types/ssh2": "^1.15.5",
+    "jest": "^30.3.0",
+    "ts-jest": "^29.4.6",
     "typescript": "^5.7.0"
   }
 }
