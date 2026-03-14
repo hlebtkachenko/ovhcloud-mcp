@@ -1,5 +1,9 @@
 # OVHcloud MCP Server
 
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Node.js Version](https://img.shields.io/badge/node-%3E%3D20-brightgreen)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
+
 MCP server for [OVHcloud](https://www.ovhcloud.com). Manage VPS, domains, DNS, billing, and execute SSH commands from any MCP-compatible client.
 
 27 tools + full API discovery across 500+ OVH endpoints.
@@ -210,7 +214,8 @@ src/
   ovh-client.ts         API client (SHA1-HMAC + OAuth2), path validation
   tools/
     vps.ts              VPS management (9 tools)
-    domain.ts           Domains and DNS (8 tools), raw API (1 tool)
+    domain.ts           Domains and DNS (8 tools)
+    raw.ts              Raw API calls (1 tool)
     account.ts          Account and billing (4 tools)
     explorer.ts         API spec search and discovery (3 tools)
     ssh.ts              Remote command execution (2 tools)

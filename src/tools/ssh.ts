@@ -2,6 +2,7 @@ import { z } from "zod";
 import { Client as SshClient } from "ssh2";
 import { readFileSync } from "node:fs";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { textResult } from "./utils.js";
 
 const CONNECT_TIMEOUT = 15_000;
 const EXEC_TIMEOUT = 60_000;
@@ -10,6 +11,31 @@ interface SshResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+}
+
+interface SshConfig {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  keyFile?: string;
+}
+
+function resolveSshConfig(
+  params: { host?: string; port?: number; username?: string; password?: string; privateKeyFile?: string },
+  defaults: { host?: string; port: number; user?: string; password?: string; key?: string },
+): SshConfig {
+  const host = params.host || defaults.host;
+  const port = params.port || defaults.port;
+  const username = params.username || defaults.user;
+  const password = params.password || defaults.password;
+  const keyFile = params.privateKeyFile || defaults.key;
+
+  if (!host) throw new Error("No SSH host. Set SSH_HOST env or pass host parameter.");
+  if (!username) throw new Error("No SSH user. Set SSH_USER env or pass username parameter.");
+  if (!password && !keyFile) throw new Error("No SSH credentials. Set SSH_PASSWORD or SSH_PRIVATE_KEY_FILE env.");
+
+  return { host, port, username, password, keyFile };
 }
 
 function execSsh(
@@ -72,11 +98,13 @@ function execSsh(
 }
 
 export function registerSshTools(server: McpServer) {
-  const defaultHost = process.env.SSH_HOST;
-  const defaultPort = process.env.SSH_PORT ? Number(process.env.SSH_PORT) : 22;
-  const defaultUser = process.env.SSH_USER;
-  const defaultPassword = process.env.SSH_PASSWORD;
-  const defaultKey = process.env.SSH_PRIVATE_KEY_FILE;
+  const envDefaults = {
+    host: process.env.SSH_HOST,
+    port: process.env.SSH_PORT ? Number(process.env.SSH_PORT) : 22,
+    user: process.env.SSH_USER,
+    password: process.env.SSH_PASSWORD,
+    key: process.env.SSH_PRIVATE_KEY_FILE,
+  };
 
   server.tool(
     "ovh_ssh_exec",
@@ -91,28 +119,23 @@ export function registerSshTools(server: McpServer) {
       timeout: z.number().optional().default(60000).describe("Exec timeout in ms"),
     },
     async (params) => {
-      const host = params.host || defaultHost;
-      const port = params.port || defaultPort;
-      const username = params.username || defaultUser;
-      const password = params.password || defaultPassword;
-      const keyFile = params.privateKeyFile || defaultKey;
+      try {
+        const cfg = resolveSshConfig(params, envDefaults);
+        const result = await execSsh(cfg.host, cfg.port, cfg.username, { password: cfg.password, privateKey: cfg.keyFile }, params.command, params.timeout);
 
-      if (!host) throw new Error("No SSH host. Set SSH_HOST env or pass host parameter.");
-      if (!username) throw new Error("No SSH user. Set SSH_USER env or pass username parameter.");
-      if (!password && !keyFile) throw new Error("No SSH credentials. Set SSH_PASSWORD or SSH_PRIVATE_KEY_FILE env.");
+        const lines = [
+          `# SSH: ${params.command.slice(0, 100)}`,
+          `- Host: ${cfg.host}:${cfg.port}`,
+          `- Exit code: ${result.exitCode}`,
+        ];
 
-      const result = await execSsh(host, port, username, { password, privateKey: keyFile }, params.command, params.timeout);
+        if (result.stdout) lines.push("", "## stdout", "```", result.stdout.trimEnd(), "```");
+        if (result.stderr) lines.push("", "## stderr", "```", result.stderr.trimEnd(), "```");
 
-      const lines = [
-        `# SSH: ${params.command.slice(0, 100)}`,
-        `- Host: ${host}:${port}`,
-        `- Exit code: ${result.exitCode}`,
-      ];
-
-      if (result.stdout) lines.push("", "## stdout", "```", result.stdout.trimEnd(), "```");
-      if (result.stderr) lines.push("", "## stderr", "```", result.stderr.trimEnd(), "```");
-
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+        return textResult(lines.join("\n"));
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+      }
     },
   );
 
@@ -127,21 +150,18 @@ export function registerSshTools(server: McpServer) {
       privateKeyFile: z.string().optional().describe("Path to SSH private key file"),
     },
     async (params) => {
-      const host = params.host || defaultHost;
-      const port = params.port || defaultPort;
-      const username = params.username || defaultUser;
-      const password = params.password || defaultPassword;
-      const keyFile = params.privateKeyFile || defaultKey;
-
-      if (!host || !username || (!password && !keyFile)) {
-        return { content: [{ type: "text", text: "Missing SSH connection details. Set SSH_HOST, SSH_USER, and SSH_PASSWORD/SSH_PRIVATE_KEY_FILE." }] };
+      let cfg: SshConfig;
+      try {
+        cfg = resolveSshConfig(params, envDefaults);
+      } catch {
+        return textResult("Missing SSH connection details. Set SSH_HOST, SSH_USER, and SSH_PASSWORD/SSH_PRIVATE_KEY_FILE.");
       }
 
       try {
-        const result = await execSsh(host, port, username, { password, privateKey: keyFile }, "echo OK && hostname && uptime", 15_000);
-        return { content: [{ type: "text", text: `# SSH Connection OK\n- Host: ${host}:${port}\n- User: ${username}\n\n\`\`\`\n${result.stdout.trimEnd()}\n\`\`\`` }] };
+        const result = await execSsh(cfg.host, cfg.port, cfg.username, { password: cfg.password, privateKey: cfg.keyFile }, "echo OK && hostname && uptime", 15_000);
+        return textResult(`# SSH Connection OK\n- Host: ${cfg.host}:${cfg.port}\n- User: ${cfg.username}\n\n\`\`\`\n${result.stdout.trimEnd()}\n\`\`\``);
       } catch (err) {
-        return { content: [{ type: "text", text: `# SSH Connection FAILED\n- Host: ${host}:${port}\n- Error: ${err instanceof Error ? err.message : String(err)}` }] };
+        return textResult(`# SSH Connection FAILED\n- Host: ${cfg.host}:${cfg.port}\n- Error: ${err instanceof Error ? err.message : String(err)}`);
       }
     },
   );

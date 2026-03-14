@@ -1,10 +1,23 @@
 {
   "name": "ovhcloud-mcp",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "OVHcloud MCP server — VPS, domains, DNS, billing, SSH, API explorer",
   "type": "module",
   "main": "dist/index.js",
   "license": "MIT",
+  "author": "Hleb Tkachenko",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hlebtkachenko/ovhcloud-mcp.git"
+  },
+  "homepage": "https://github.com/hlebtkachenko/ovhcloud-mcp#readme",
+  "bugs": {
+    "url": "https://github.com/hlebtkachenko/ovhcloud-mcp/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": ["mcp", "mcp-server", "ovhcloud", "ovh", "vps", "domains", "dns", "typescript"],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",

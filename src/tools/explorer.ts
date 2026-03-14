@@ -1,14 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OvhClient } from "../ovh-client.js";
-
-const TIMEOUT_MS = 30_000;
-
-interface ApiRoute {
-  path: string;
-  methods: string[];
-  description?: string;
-}
+import { TIMEOUT_MS } from "../ovh-client.js";
+import { textResult } from "./utils.js";
 
 interface SpecEndpoint {
   httpMethod: string;
@@ -18,7 +12,7 @@ interface SpecEndpoint {
 }
 
 let cachedApis: string[] | null = null;
-let specCache = new Map<string, SpecEndpoint[]>();
+const specCache = new Map<string, SpecEndpoint[]>();
 
 async function fetchJson<T>(url: string): Promise<T> {
   const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) });
@@ -58,18 +52,22 @@ async function getApiSpec(baseUrl: string, apiPath: string): Promise<SpecEndpoin
 }
 
 export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
-  const baseUrl = "https://eu.api.ovh.com/1.0";
+  const baseUrl = ovh.baseUrl;
 
   server.tool(
     "ovh_api_catalog",
     "List all available OVH API categories (vps, domain, cloud, dedicated, email, etc.)",
     {},
     async () => {
-      const apis = await listApis(baseUrl);
-      const lines = [`# OVH API Catalog (${apis.length} categories)`, ""];
-      for (const a of apis) lines.push(`- ${a}`);
-      lines.push("", "Use **ovh_api_search** to explore endpoints within a category.");
-      return { content: [{ type: "text", text: lines.join("\n") }] };
+      try {
+        const apis = await listApis(baseUrl);
+        const lines = [`# OVH API Catalog (${apis.length} categories)`, ""];
+        for (const a of apis) lines.push(`- ${a}`);
+        lines.push("", "Use **ovh_api_search** to explore endpoints within a category.");
+        return textResult(lines.join("\n"));
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+      }
     },
   );
 
@@ -82,60 +80,64 @@ export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
       method: z.enum(["GET", "POST", "PUT", "DELETE"]).optional().describe("Filter by HTTP method"),
     },
     async ({ query, category, method }) => {
-      const apis = await listApis(baseUrl);
-      const q = query.toLowerCase();
+      try {
+        const apis = await listApis(baseUrl);
+        const q = query.toLowerCase();
 
-      const searchIn = category
-        ? apis.filter((a) => a === category || a.startsWith(category + "/"))
-        : apis;
+        const searchIn = category
+          ? apis.filter((a) => a === category || a.startsWith(category + "/"))
+          : apis;
 
-      if (!searchIn.length) {
-        return { content: [{ type: "text", text: `No API category matching "${category}".` }] };
-      }
-
-      const matches: Array<{ method: string; path: string; desc: string }> = [];
-      const errors: string[] = [];
-
-      const batchSize = 5;
-      for (let i = 0; i < searchIn.length; i += batchSize) {
-        const batch = searchIn.slice(i, i + batchSize);
-        const results = await Promise.allSettled(
-          batch.map((api) => getApiSpec(baseUrl, api)),
-        );
-
-        for (let j = 0; j < results.length; j++) {
-          const r = results[j];
-          if (r.status === "rejected") {
-            errors.push(batch[j]);
-            continue;
-          }
-          for (const ep of r.value) {
-            if (method && ep.httpMethod !== method) continue;
-            const haystack = `${ep.path} ${ep.description || ""}`.toLowerCase();
-            if (haystack.includes(q)) {
-              matches.push({
-                method: ep.httpMethod,
-                path: ep.path,
-                desc: ep.description || "",
-              });
-            }
-          }
+        if (!searchIn.length) {
+          return textResult(`No API category matching "${category}".`);
         }
 
-        if (matches.length >= 50) break;
-      }
+        const matches: Array<{ method: string; path: string; desc: string }> = [];
+        const errors: string[] = [];
 
-      if (!matches.length) {
-        return { content: [{ type: "text", text: `No endpoints matching "${query}"${category ? ` in ${category}` : ""}.` }] };
-      }
+        const batchSize = 5;
+        for (let i = 0; i < searchIn.length; i += batchSize) {
+          const batch = searchIn.slice(i, i + batchSize);
+          const results = await Promise.allSettled(
+            batch.map((api) => getApiSpec(baseUrl, api)),
+          );
 
-      const lines = [`# API Search: "${query}" (${matches.length} results)`, ""];
-      for (const m of matches.slice(0, 50)) {
-        lines.push(`- **${m.method}** \`${m.path}\` — ${m.desc}`);
+          for (let j = 0; j < results.length; j++) {
+            const r = results[j];
+            if (r.status === "rejected") {
+              errors.push(batch[j]);
+              continue;
+            }
+            for (const ep of r.value) {
+              if (method && ep.httpMethod !== method) continue;
+              const haystack = `${ep.path} ${ep.description || ""}`.toLowerCase();
+              if (haystack.includes(q)) {
+                matches.push({
+                  method: ep.httpMethod,
+                  path: ep.path,
+                  desc: ep.description || "",
+                });
+              }
+            }
+          }
+
+          if (matches.length >= 50) break;
+        }
+
+        if (!matches.length) {
+          return textResult(`No endpoints matching "${query}"${category ? ` in ${category}` : ""}.`);
+        }
+
+        const lines = [`# API Search: "${query}" (${matches.length} results)`, ""];
+        for (const m of matches.slice(0, 50)) {
+          lines.push(`- **${m.method}** \`${m.path}\` — ${m.desc}`);
+        }
+        if (matches.length > 50) lines.push(`\n... and ${matches.length - 50} more`);
+        lines.push("", "Use **ovh_api_endpoint_detail** to see parameters, or **ovh_api_raw** to call directly.");
+        return textResult(lines.join("\n"));
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
       }
-      if (matches.length > 50) lines.push(`\n... and ${matches.length - 50} more`);
-      lines.push("", "Use **ovh_api_endpoint_detail** to see parameters, or **ovh_api_raw** to call directly.");
-      return { content: [{ type: "text", text: lines.join("\n") }] };
     },
   );
 
@@ -147,33 +149,37 @@ export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
       method: z.enum(["GET", "POST", "PUT", "DELETE"]).optional().default("GET"),
     },
     async ({ path: targetPath, method: targetMethod }) => {
-      const apis = await listApis(baseUrl);
-      const prefix = "/" + targetPath.replace(/^\//, "").split("/").slice(0, 1)[0];
-      const matchingApis = apis.filter((a) => a.startsWith(prefix));
+      try {
+        const apis = await listApis(baseUrl);
+        const prefix = "/" + targetPath.replace(/^\//, "").split("/").slice(0, 1)[0];
+        const matchingApis = apis.filter((a) => a.startsWith(prefix));
 
-      for (const api of matchingApis) {
-        const endpoints = await getApiSpec(baseUrl, api);
-        const ep = endpoints.find(
-          (e) => e.path === targetPath && (!targetMethod || e.httpMethod === targetMethod),
-        );
+        for (const api of matchingApis) {
+          const endpoints = await getApiSpec(baseUrl, api);
+          const ep = endpoints.find(
+            (e) => e.path === targetPath && (!targetMethod || e.httpMethod === targetMethod),
+          );
 
-        if (ep) {
-          const lines = [`# ${ep.httpMethod} ${ep.path}`, ""];
-          if (ep.description) lines.push(ep.description, "");
-          if (ep.parameters?.length) {
-            lines.push("## Parameters", "");
-            for (const p of ep.parameters) {
-              const req = p.required ? "**required**" : "optional";
-              lines.push(`- \`${p.name}\` (${p.dataType}, ${p.paramType}, ${req})${p.description ? ` — ${p.description}` : ""}`);
+          if (ep) {
+            const lines = [`# ${ep.httpMethod} ${ep.path}`, ""];
+            if (ep.description) lines.push(ep.description, "");
+            if (ep.parameters?.length) {
+              lines.push("## Parameters", "");
+              for (const p of ep.parameters) {
+                const req = p.required ? "**required**" : "optional";
+                lines.push(`- \`${p.name}\` (${p.dataType}, ${p.paramType}, ${req})${p.description ? ` — ${p.description}` : ""}`);
+              }
+            } else {
+              lines.push("No parameters.");
             }
-          } else {
-            lines.push("No parameters.");
+            return textResult(lines.join("\n"));
           }
-          return { content: [{ type: "text", text: lines.join("\n") }] };
         }
-      }
 
-      return { content: [{ type: "text", text: `Endpoint not found: ${targetMethod || "GET"} ${targetPath}` }] };
+        return textResult(`Endpoint not found: ${targetMethod || "GET"} ${targetPath}`);
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+      }
     },
   );
 }

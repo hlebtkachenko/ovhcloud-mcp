@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { OvhClient } from "./ovh-client.js";
@@ -7,6 +8,9 @@ import { registerDomainTools } from "./tools/domain.js";
 import { registerAccountTools } from "./tools/account.js";
 import { registerExplorerTools } from "./tools/explorer.js";
 import { registerSshTools } from "./tools/ssh.js";
+import { registerRawTools } from "./tools/raw.js";
+
+const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf-8"));
 
 function env(name: string): string | undefined {
   return process.env[name] || undefined;
@@ -46,12 +50,13 @@ function detectAuthConfig(): OvhConfig {
 }
 
 const client = new OvhClient(detectAuthConfig());
-const server = new McpServer({ name: "ovhcloud", version: "2.0.0" });
+const server = new McpServer({ name: "ovhcloud", version: pkg.version });
 
 registerVpsTools(server, client);
 registerDomainTools(server, client);
 registerAccountTools(server, client);
 registerExplorerTools(server, client);
+registerRawTools(server, client);
 registerSshTools(server);
 
 await server.connect(new StdioServerTransport());

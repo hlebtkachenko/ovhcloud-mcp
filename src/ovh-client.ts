@@ -12,7 +12,7 @@ const AUTH_BASES: Record<string, string> = {
   "ovh-ca": "https://auth.ca.ovhcloud.com",
 };
 
-const TIMEOUT_MS = 30_000;
+export const TIMEOUT_MS = 30_000;
 
 const FORBIDDEN_PATH_PATTERNS = /[?#]|\.\./;
 
@@ -43,7 +43,7 @@ export function validatePath(path: string): void {
 }
 
 export class OvhClient {
-  private baseUrl: string;
+  readonly baseUrl: string;
   private config: OvhConfig;
   private timeDelta: number | null = null;
 
