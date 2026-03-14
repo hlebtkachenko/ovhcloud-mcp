@@ -1,6 +1,6 @@
 # OVHcloud MCP Server
 
-MCP server for [OVHcloud](https://www.ovhcloud.com). Manage VPS, domains, DNS, billing, and execute SSH commands from Cursor, Claude, or any MCP-compatible client.
+MCP server for [OVHcloud](https://www.ovhcloud.com). Manage VPS, domains, DNS, billing, and execute SSH commands from any MCP-compatible client.
 
 27 tools + full API discovery across 500+ OVH endpoints.
 
@@ -12,20 +12,24 @@ MCP server for [OVHcloud](https://www.ovhcloud.com). Manage VPS, domains, DNS, b
 ## Installation
 
 ```bash
+git clone https://github.com/hlebtkachenko/ovhcloud-mcp.git
+cd ovhcloud-mcp
 npm ci
 npm run build
 ```
 
 ## Configuration
 
-Add to `~/.cursor/mcp.json`:
+### Cursor
+
+`~/.cursor/mcp.json`
 
 ```json
 {
   "mcpServers": {
     "ovhcloud": {
       "command": "node",
-      "args": ["path/to/ovhcloud-mcp/dist/index.js"],
+      "args": ["/path/to/ovhcloud-mcp/dist/index.js"],
       "env": {
         "OVH_APPLICATION_KEY": "your_app_key",
         "OVH_APPLICATION_SECRET": "your_app_secret",
@@ -35,6 +39,56 @@ Add to `~/.cursor/mcp.json`:
   }
 }
 ```
+
+### Claude Desktop
+
+`claude_desktop_config.json` ([location](https://modelcontextprotocol.io/quickstart/user#1-open-your-mcp-client))
+
+```json
+{
+  "mcpServers": {
+    "ovhcloud": {
+      "command": "node",
+      "args": ["/path/to/ovhcloud-mcp/dist/index.js"],
+      "env": {
+        "OVH_APPLICATION_KEY": "your_app_key",
+        "OVH_APPLICATION_SECRET": "your_app_secret",
+        "OVH_CONSUMER_KEY": "your_consumer_key"
+      }
+    }
+  }
+}
+```
+
+### Claude Code
+
+`.mcp.json` in your project root, or `~/.claude.json` globally:
+
+```json
+{
+  "mcpServers": {
+    "ovhcloud": {
+      "command": "node",
+      "args": ["/path/to/ovhcloud-mcp/dist/index.js"],
+      "env": {
+        "OVH_APPLICATION_KEY": "your_app_key",
+        "OVH_APPLICATION_SECRET": "your_app_secret",
+        "OVH_CONSUMER_KEY": "your_consumer_key"
+      }
+    }
+  }
+}
+```
+
+### Any MCP client (stdio)
+
+The server uses `stdio` transport. Point your MCP client to:
+
+```
+node /path/to/ovhcloud-mcp/dist/index.js
+```
+
+With environment variables set for authentication (see below).
 
 ### Environment Variables
 
@@ -147,8 +201,6 @@ Multi-stage build, runs as non-root `node` user.
 ```bash
 npm test
 ```
-
-10 tests covering path validation, auth mode detection, and constructor behavior.
 
 ## Architecture
 
