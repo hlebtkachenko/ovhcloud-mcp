@@ -1,87 +1,31 @@
 # OVHcloud MCP Server
 
-MCP server for managing OVHcloud infrastructure — VPS, domains, DNS, billing, SSH, and full API exploration — from any MCP-compatible client (Cursor, Claude, etc.).
+MCP server for [OVHcloud](https://www.ovhcloud.com). Manage VPS, domains, DNS, billing, and execute SSH commands from Cursor, Claude, or any MCP-compatible client.
 
-## Features
+27 tools + full API discovery across 500+ OVH endpoints.
 
-- **27 purpose-built tools** with typed parameters and Markdown-formatted output
-- **API Explorer** — search and discover any OVH API endpoint (500+ endpoints across all services)
-- **SSH** — execute commands on remote servers directly through MCP
-- **Dual auth** — API key (SHA1-HMAC signature) and OAuth2 (service accounts)
-- **Security** — 30s fetch timeouts, path injection prevention, error truncation
-- **Docker** — multi-stage build, runs as non-root
+## Requirements
 
-## Tools
+- Node.js 20+
+- OVH API credentials ([create token](https://www.ovh.com/auth/api/createToken))
 
-### VPS (9 tools)
+## Installation
 
-| Tool | Description |
-|------|-------------|
-| `ovh_vps_list` | List all VPS with hardware details |
-| `ovh_vps_info` | Detailed VPS info (hardware, IPs, service status) |
-| `ovh_vps_monitoring` | CPU, network RX/TX statistics |
-| `ovh_vps_ips` | List assigned IPs |
-| `ovh_vps_reboot` | Reboot a VPS |
-| `ovh_vps_start` | Start a stopped VPS |
-| `ovh_vps_stop` | Stop a running VPS |
-| `ovh_vps_snapshot` | Get snapshot info |
-| `ovh_vps_create_snapshot` | Create a new snapshot |
+```bash
+npm ci
+npm run build
+```
 
-### Domains & DNS (8 tools)
+## Configuration
 
-| Tool | Description |
-|------|-------------|
-| `ovh_domain_list` | List all domains and DNS zones |
-| `ovh_domain_zone_info` | Zone details (nameservers, DNSSEC) |
-| `ovh_domain_dns_records` | List DNS records with filters |
-| `ovh_domain_dns_record_detail` | Single record details |
-| `ovh_domain_dns_create` | Create a DNS record |
-| `ovh_domain_dns_update` | Update a DNS record |
-| `ovh_domain_dns_delete` | Delete a DNS record |
-| `ovh_domain_dns_refresh` | Force zone refresh |
-
-### Account & Billing (4 tools)
-
-| Tool | Description |
-|------|-------------|
-| `ovh_account_info` | Account details (name, email, country) |
-| `ovh_services` | List all active services |
-| `ovh_invoices` | Recent invoices with PDF links |
-| `ovh_invoice_detail` | Full invoice with line items |
-
-### API Explorer (3 tools)
-
-| Tool | Description |
-|------|-------------|
-| `ovh_api_catalog` | List all OVH API categories |
-| `ovh_api_search` | Search endpoints by keyword across all APIs |
-| `ovh_api_endpoint_detail` | Full parameter details for any endpoint |
-
-### SSH (2 tools)
-
-| Tool | Description |
-|------|-------------|
-| `ovh_ssh_exec` | Execute a command on a remote server |
-| `ovh_ssh_check` | Test SSH connectivity |
-
-### Raw API (1 tool)
-
-| Tool | Description |
-|------|-------------|
-| `ovh_api_raw` | Call any OVH API endpoint directly |
-
-## Quick Start
-
-### stdio (Cursor / Claude Desktop)
-
-Add to your MCP configuration:
+Add to `~/.cursor/mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "ovhcloud": {
       "command": "node",
-      "args": ["/path/to/ovhcloud-mcp/dist/index.js"],
+      "args": ["path/to/ovhcloud-mcp/dist/index.js"],
       "env": {
         "OVH_APPLICATION_KEY": "your_app_key",
         "OVH_APPLICATION_SECRET": "your_app_secret",
@@ -92,51 +36,20 @@ Add to your MCP configuration:
 }
 ```
 
-### Docker
+### Environment Variables
 
-```bash
-docker build -t ovhcloud-mcp .
-docker run --rm \
-  -e OVH_APPLICATION_KEY=your_key \
-  -e OVH_APPLICATION_SECRET=your_secret \
-  -e OVH_CONSUMER_KEY=your_consumer \
-  ovhcloud-mcp
-```
+**Authentication** (one of two modes, auto-detected):
 
-### From source
+| Variable | Mode | Description |
+|----------|------|-------------|
+| `OVH_APPLICATION_KEY` | API key | Application key |
+| `OVH_APPLICATION_SECRET` | API key | Application secret |
+| `OVH_CONSUMER_KEY` | API key | Consumer key |
+| `OVH_CLIENT_ID` | OAuth2 | Service account ID |
+| `OVH_CLIENT_SECRET` | OAuth2 | Service account secret |
+| `OVH_ENDPOINT` | Both | `ovh-eu` (default), `ovh-ca`, `ovh-us` |
 
-```bash
-npm ci && npm run build
-node dist/index.js
-```
-
-## Authentication
-
-The server auto-detects auth mode from environment variables.
-
-### API Keys (default)
-
-Get credentials at [OVH Token Creation](https://www.ovh.com/auth/api/createToken). Set all methods (`GET`, `POST`, `PUT`, `DELETE`) with path `/*`.
-
-| Variable | Description |
-|----------|-------------|
-| `OVH_APPLICATION_KEY` | Application key |
-| `OVH_APPLICATION_SECRET` | Application secret |
-| `OVH_CONSUMER_KEY` | Consumer key |
-| `OVH_ENDPOINT` | API region: `ovh-eu` (default), `ovh-ca`, `ovh-us` |
-
-### OAuth2 (service accounts)
-
-Create a service account via OVH API (`POST /me/api/oauth2/client`) and configure an IAM policy.
-
-| Variable | Description |
-|----------|-------------|
-| `OVH_CLIENT_ID` | Service account ID |
-| `OVH_CLIENT_SECRET` | Service account secret |
-
-Do not set both API keys and OAuth2 credentials at the same time.
-
-### SSH (optional)
+**SSH** (optional):
 
 | Variable | Description |
 |----------|-------------|
@@ -146,14 +59,88 @@ Do not set both API keys and OAuth2 credentials at the same time.
 | `SSH_PASSWORD` | SSH password |
 | `SSH_PRIVATE_KEY_FILE` | Path to private key file |
 
+## Tools
+
+### VPS
+
+| Tool | Description |
+|------|-------------|
+| `ovh_vps_list` | List all VPS with hardware details |
+| `ovh_vps_info` | Server state, hardware, IPs, service status |
+| `ovh_vps_monitoring` | CPU and network statistics |
+| `ovh_vps_ips` | List assigned IPs |
+| `ovh_vps_reboot` | Reboot a VPS |
+| `ovh_vps_start` | Start a stopped VPS |
+| `ovh_vps_stop` | Stop a running VPS |
+| `ovh_vps_snapshot` | Get snapshot info |
+| `ovh_vps_create_snapshot` | Create a new snapshot |
+
+### Domains & DNS
+
+| Tool | Description |
+|------|-------------|
+| `ovh_domain_list` | List all domains and DNS zones |
+| `ovh_domain_zone_info` | Nameservers, DNSSEC status |
+| `ovh_domain_dns_records` | List records with type/subdomain filters |
+| `ovh_domain_dns_record_detail` | Single record details |
+| `ovh_domain_dns_create` | Create DNS record |
+| `ovh_domain_dns_update` | Update DNS record |
+| `ovh_domain_dns_delete` | Delete DNS record |
+| `ovh_domain_dns_refresh` | Force zone refresh |
+
+### Account & Billing
+
+| Tool | Description |
+|------|-------------|
+| `ovh_account_info` | Account details (name, email, country) |
+| `ovh_services` | List active services with renewal info |
+| `ovh_invoices` | Recent invoices with PDF links |
+| `ovh_invoice_detail` | Full invoice with line items |
+
+### API Explorer
+
+Discover and inspect any OVH API endpoint without writing code.
+
+| Tool | Description |
+|------|-------------|
+| `ovh_api_catalog` | List all API categories (vps, cloud, email, dedicated, etc.) |
+| `ovh_api_search` | Search endpoints by keyword across all or specific categories |
+| `ovh_api_endpoint_detail` | Parameters, types, and descriptions for any endpoint |
+
+### SSH
+
+| Tool | Description |
+|------|-------------|
+| `ovh_ssh_exec` | Execute a command on a remote server |
+| `ovh_ssh_check` | Test SSH connectivity |
+
+### Raw API
+
+| Tool | Description |
+|------|-------------|
+| `ovh_api_raw` | Call any OVH API endpoint directly |
+
+## Docker
+
+```bash
+docker build -t ovhcloud-mcp .
+docker run --rm \
+  -e OVH_APPLICATION_KEY=... \
+  -e OVH_APPLICATION_SECRET=... \
+  -e OVH_CONSUMER_KEY=... \
+  ovhcloud-mcp
+```
+
+Multi-stage build, runs as non-root `node` user.
+
 ## Security
 
-- **Path injection prevention** — API paths containing `..`, `?`, or `#` are rejected
-- **Fetch timeouts** — all HTTP calls have a 30-second timeout
-- **Error truncation** — upstream error responses are capped at 500 characters
-- **Input validation** — all tool parameters validated with Zod schemas
-- **SSH output limits** — stdout/stderr capped to prevent memory issues
-- **Non-root Docker** — container runs as unprivileged `node` user
+- Path injection prevention — `..`, `?`, `#` rejected in API paths
+- 30-second timeout on all HTTP requests
+- Error responses truncated to 500 characters
+- All parameters validated with Zod schemas
+- SSH output capped at 100 KB to prevent memory issues
+- Docker container runs as unprivileged user
 
 ## Testing
 
@@ -161,22 +148,37 @@ Do not set both API keys and OAuth2 credentials at the same time.
 npm test
 ```
 
+10 tests covering path validation, auth mode detection, and constructor behavior.
+
 ## Architecture
 
 ```
 src/
-  index.ts          Entry point, auth detection, tool registration
-  ovh-client.ts     API client (SHA1-HMAC + OAuth2), path validation
+  index.ts              Auth detection, tool registration
+  ovh-client.ts         API client (SHA1-HMAC + OAuth2), path validation
   tools/
-    vps.ts          VPS management (9 tools)
-    domain.ts       Domains and DNS (8 tools)
-    account.ts      Account and billing (4 tools)
-    explorer.ts     API spec search and discovery (3 tools)
-    ssh.ts          Remote command execution (2 tools)
+    vps.ts              VPS management (9 tools)
+    domain.ts           Domains and DNS (8 tools), raw API (1 tool)
+    account.ts          Account and billing (4 tools)
+    explorer.ts         API spec search and discovery (3 tools)
+    ssh.ts              Remote command execution (2 tools)
 tests/
-  ovh-client.test.ts  Client and validation tests
+  ovh-client.test.ts    Path validation and client tests
 ```
+
+## Tech Stack
+
+- TypeScript
+- `@modelcontextprotocol/sdk`
+- Zod (schema validation)
+- ssh2 (SSH client)
+- Native `fetch`
+
+## API Reference
+
+- [OVH API Console](https://eu.api.ovh.com/console/)
+- [OVH API Documentation](https://docs.ovh.com/gb/en/api/)
 
 ## License
 
-MIT
+[MIT](LICENSE)
