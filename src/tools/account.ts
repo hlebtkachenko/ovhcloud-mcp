@@ -2,13 +2,26 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OvhClient } from "../ovh-client.js";
 
-function fmt(obj: unknown): string {
-  return JSON.stringify(obj, null, 2);
+function parseJson(raw: string, label: string): unknown {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new Error(`Invalid JSON in ${label}: ${raw.slice(0, 100)}`);
+  }
+}
+
+function priceText(val: unknown): string {
+  if (!val) return "n/a";
+  if (typeof val === "object" && val !== null && "text" in val) return String((val as Record<string, unknown>).text);
+  return String(val);
 }
 
 export function registerAccountTools(server: McpServer, ovh: OvhClient) {
   server.tool("ovh_account_info", "Get OVH account details (name, email, country, etc.)", {}, async () => {
     const me = await ovh.get<Record<string, unknown>>("/me");
+    const currency = typeof me.currency === "object" && me.currency !== null
+      ? (me.currency as Record<string, unknown>).code
+      : me.currency;
     const lines = [
       "# OVH Account",
       `- Name: ${me.firstname} ${me.name}`,
@@ -16,35 +29,34 @@ export function registerAccountTools(server: McpServer, ovh: OvhClient) {
       `- Email: ${me.email}`,
       `- Country: ${me.country}`,
       `- Language: ${me.language}`,
-      `- Currency: ${(me.currency as Record<string,unknown>)?.code || me.currency}`,
+      `- Currency: ${currency || "n/a"}`,
       `- Organisation: ${me.organisation || "n/a"}`,
-      `- Company: ${me.companyNationalIdentificationNumber || "n/a"}`,
       `- State: ${me.state}`,
-      `- OVH subsidiary: ${me.ovhSubsidiary}`,
+      `- Subsidiary: ${me.ovhSubsidiary}`,
     ];
     return { content: [{ type: "text", text: lines.join("\n") }] };
   });
 
   server.tool("ovh_services", "List all active OVH services", {}, async () => {
-    const serviceIds = await ovh.get<number[]>("/me/service");
-    if (!serviceIds.length) return { content: [{ type: "text", text: "No services found." }] };
+    const ids = await ovh.get<number[]>("/me/service");
+    if (!ids.length) return { content: [{ type: "text", text: "No services found." }] };
 
-    const batchSize = 10;
     const services: Record<string, unknown>[] = [];
-    for (let i = 0; i < serviceIds.length; i += batchSize) {
-      const batch = serviceIds.slice(i, i + batchSize);
-      const results = await Promise.all(
-        batch.map((id) => ovh.get<Record<string, unknown>>(`/me/service/${id}`)),
+    for (let i = 0; i < ids.length; i += 10) {
+      const batch = await Promise.all(
+        ids.slice(i, i + 10).map((id) => ovh.get<Record<string, unknown>>(`/me/service/${id}`)),
       );
-      services.push(...results);
+      services.push(...batch);
     }
 
     const lines = [`# OVH Services (${services.length})`, ""];
     for (const s of services) {
+      const route = s.route as Record<string, unknown> | undefined;
+      const renew = s.renew as Record<string, unknown> | undefined;
       lines.push(
-        `## ${s.serviceId} — ${(s.route as Record<string,unknown> | undefined)?.path || s.serviceType || "unknown"}`,
+        `## ${s.serviceId} — ${route?.path || s.serviceType || "unknown"}`,
         `- Status: ${s.status}`,
-        `- Renew: ${(s.renew as Record<string,unknown>)?.mode || "n/a"}`,
+        `- Renew: ${renew?.mode || "n/a"}`,
         `- Expiration: ${s.expirationDate || "n/a"}`,
         `- Creation: ${s.creationDate || "n/a"}`,
         "",
@@ -56,26 +68,24 @@ export function registerAccountTools(server: McpServer, ovh: OvhClient) {
   server.tool(
     "ovh_invoices",
     "List recent invoices (bills)",
-    {
-      limit: z.number().optional().default(10).describe("Max invoices to return (default 10)"),
-    },
+    { limit: z.number().optional().default(10).describe("Max invoices to return") },
     async ({ limit }) => {
-      const billIds = await ovh.get<string[]>("/me/bill");
-      if (!billIds.length) return { content: [{ type: "text", text: "No invoices found." }] };
+      const ids = await ovh.get<string[]>("/me/bill");
+      if (!ids.length) return { content: [{ type: "text", text: "No invoices found." }] };
 
-      const recent = billIds.slice(-limit).reverse();
+      const recent = ids.slice(-limit).reverse();
       const bills = await Promise.all(
         recent.map((id) => ovh.get<Record<string, unknown>>(`/me/bill/${id}`)),
       );
 
-      const lines = [`# Recent Invoices (${bills.length} of ${billIds.length} total)`, ""];
+      const lines = [`# Recent Invoices (${bills.length} of ${ids.length} total)`, ""];
       for (const b of bills) {
         lines.push(
           `## ${b.billId}`,
           `- Date: ${b.date}`,
-          `- Amount: ${(b.priceWithTax as Record<string,unknown>)?.text || b.priceWithTax}`,
-          `- Without tax: ${(b.priceWithoutTax as Record<string,unknown>)?.text || b.priceWithoutTax}`,
-          `- Tax: ${(b.tax as Record<string,unknown>)?.text || b.tax}`,
+          `- Total: ${priceText(b.priceWithTax)}`,
+          `- Net: ${priceText(b.priceWithoutTax)}`,
+          `- Tax: ${priceText(b.tax)}`,
           `- PDF: ${b.pdfUrl || "n/a"}`,
           "",
         );
@@ -87,7 +97,7 @@ export function registerAccountTools(server: McpServer, ovh: OvhClient) {
   server.tool(
     "ovh_invoice_detail",
     "Get full details of a specific invoice",
-    { billId: z.string().describe("Invoice/bill ID (from ovh_invoices)") },
+    { billId: z.string().describe("Invoice/bill ID") },
     async ({ billId }) => {
       const bill = await ovh.get<Record<string, unknown>>(`/me/bill/${billId}`);
       let detailText = "";
@@ -97,34 +107,13 @@ export function registerAccountTools(server: McpServer, ovh: OvhClient) {
           const details = await Promise.all(
             detailIds.map((id) => ovh.get<Record<string, unknown>>(`/me/bill/${billId}/details/${id}`)),
           );
-          detailText = "\n## Line Items\n" + details.map((d) =>
-            `- ${d.description}: ${(d.totalPrice as Record<string,unknown>)?.text || d.totalPrice} (qty: ${d.quantity})`,
-          ).join("\n");
+          detailText = "\n\n## Line Items\n" + details
+            .map((d) => `- ${d.description}: ${priceText(d.totalPrice)} (qty: ${d.quantity})`)
+            .join("\n");
         }
-      } catch { /* details endpoint may not exist for all bills */ }
+      } catch { /* some bills lack details */ }
 
-      return {
-        content: [{
-          type: "text",
-          text: `# Invoice ${billId}\n\`\`\`json\n${fmt(bill)}\n\`\`\`${detailText}`,
-        }],
-      };
-    },
-  );
-
-  server.tool(
-    "ovh_api_raw",
-    "Call any OVH API endpoint directly (advanced). See https://eu.api.ovh.com/console/ for all endpoints.",
-    {
-      method: z.enum(["GET", "POST", "PUT", "DELETE"]).default("GET").describe("HTTP method"),
-      path: z.string().describe("API path (e.g. /vps, /me, /domain/zone/example.com/record)"),
-      body: z.string().optional().describe("JSON body for POST/PUT (as string)"),
-      query: z.record(z.string()).optional().describe("Query parameters as key-value pairs"),
-    },
-    async ({ method, path, body, query }) => {
-      const parsedBody = body ? JSON.parse(body) : undefined;
-      const result = await ovh.request(method, path, parsedBody, query);
-      return { content: [{ type: "text", text: `# ${method} ${path}\n\n\`\`\`json\n${fmt(result)}\n\`\`\`` }] };
+      return { content: [{ type: "text", text: `# Invoice ${billId}\n\`\`\`json\n${JSON.stringify(bill, null, 2)}\n\`\`\`${detailText}` }] };
     },
   );
 }

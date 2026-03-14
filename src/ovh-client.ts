@@ -6,6 +6,8 @@ const ENDPOINTS: Record<string, string> = {
   "ovh-ca": "https://ca.api.ovh.com/1.0",
 };
 
+const TIMEOUT_MS = 30_000;
+
 export interface OvhConfig {
   endpoint: string;
   appKey: string;
@@ -28,31 +30,21 @@ export class OvhClient {
   }
 
   private async syncTime(): Promise<void> {
-    const res = await fetch(`${this.baseUrl}/auth/time`);
+    const res = await fetch(`${this.baseUrl}/auth/time`, {
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
     const serverTime = (await res.json()) as number;
     this.timeDelta = serverTime - Math.floor(Date.now() / 1000);
   }
 
   private async getTimestamp(): Promise<number> {
     if (this.timeDelta === null) await this.syncTime();
-    return Math.floor(Date.now() / 1000) + this.timeDelta!;
+    return Math.floor(Date.now() / 1000) + (this.timeDelta ?? 0);
   }
 
-  private sign(
-    method: string,
-    url: string,
-    body: string,
-    timestamp: number,
-  ): string {
-    const raw = [
-      this.appSecret,
-      this.consumerKey,
-      method,
-      url,
-      body,
-      String(timestamp),
-    ].join("+");
-    return "$1$" + createHash("sha1").update(raw).digest("hex");
+  private sign(method: string, url: string, body: string, timestamp: number): string {
+    const payload = [this.appSecret, this.consumerKey, method, url, body, String(timestamp)].join("+");
+    return "$1$" + createHash("sha1").update(payload).digest("hex");
   }
 
   async request<T = unknown>(
@@ -82,16 +74,13 @@ export class OvhClient {
       method: method.toUpperCase(),
       headers,
       body: bodyStr || undefined,
+      signal: AbortSignal.timeout(TIMEOUT_MS),
     });
 
     const text = await res.text();
-
     if (!res.ok) {
-      throw new Error(
-        `OVH API ${method.toUpperCase()} ${path} → ${res.status}: ${text}`,
-      );
+      throw new Error(`OVH API ${method.toUpperCase()} ${path} → ${res.status}: ${text.slice(0, 500)}`);
     }
-
     if (!text) return undefined as T;
     return JSON.parse(text) as T;
   }
@@ -99,12 +88,15 @@ export class OvhClient {
   get<T = unknown>(path: string, query?: Record<string, string>) {
     return this.request<T>("GET", path, undefined, query);
   }
+
   post<T = unknown>(path: string, body?: unknown) {
     return this.request<T>("POST", path, body);
   }
+
   put<T = unknown>(path: string, body?: unknown) {
     return this.request<T>("PUT", path, body);
   }
+
   del<T = unknown>(path: string) {
     return this.request<T>("DELETE", path);
   }
