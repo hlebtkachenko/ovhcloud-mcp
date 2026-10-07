@@ -49,14 +49,20 @@ function detectAuthConfig(): OvhConfig {
   };
 }
 
-const client = new OvhClient(detectAuthConfig());
+let client: OvhClient;
+try {
+  client = new OvhClient(detectAuthConfig());
+} catch (err) {
+  process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`);
+  process.exit(1);
+}
 const server = new McpServer({ name: "ovhcloud", version: pkg.version });
 
 registerVpsTools(server, client);
 registerDomainTools(server, client);
 registerAccountTools(server, client);
 registerExplorerTools(server, client);
-registerRawTools(server, client);
+registerRawTools(server, client, env("OVH_ALLOW_RAW_WRITES") === "true");
 registerSshTools(server);
 
 await server.connect(new StdioServerTransport());

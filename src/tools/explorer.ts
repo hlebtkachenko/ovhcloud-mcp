@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { OvhClient } from "../ovh-client.js";
 import { TIMEOUT_MS } from "../ovh-client.js";
-import { textResult } from "./utils.js";
+import { errorResult, READ_ONLY, textResult } from "./utils.js";
 
 interface SpecEndpoint {
   httpMethod: string;
@@ -32,7 +32,7 @@ async function getApiSpec(baseUrl: string, apiPath: string): Promise<SpecEndpoin
   if (cached) return cached;
 
   const data = await fetchJson<{ apis: Array<{ path: string; operations: Array<{ httpMethod: string; description?: string; parameters?: SpecEndpoint["parameters"] }> }> }>(
-    `${baseUrl}${apiPath}`,
+    `${baseUrl}${apiPath}.json`,
   );
 
   const endpoints: SpecEndpoint[] = [];
@@ -54,10 +54,9 @@ async function getApiSpec(baseUrl: string, apiPath: string): Promise<SpecEndpoin
 export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
   const baseUrl = ovh.baseUrl;
 
-  server.tool(
+  server.registerTool(
     "ovh_api_catalog",
-    "List all available OVH API categories (vps, domain, cloud, dedicated, email, etc.)",
-    {},
+    { description: "List all available OVH API categories (vps, domain, cloud, dedicated, email, etc.)", annotations: READ_ONLY },
     async () => {
       try {
         const apis = await listApis(baseUrl);
@@ -66,18 +65,21 @@ export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
         lines.push("", "Use **ovh_api_search** to explore endpoints within a category.");
         return textResult(lines.join("\n"));
       } catch (err) {
-        return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+        return errorResult(err);
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "ovh_api_search",
-    "Search OVH API endpoints by keyword or path pattern. Searches endpoint paths and descriptions across all (or specific) API categories.",
     {
-      query: z.string().describe("Search keyword (e.g. 'snapshot', 'email', 'kubernetes', 'ip block')"),
-      category: z.string().optional().describe("Limit to API category (e.g. '/vps', '/cloud', '/domain'). Omit to search all."),
-      method: z.enum(["GET", "POST", "PUT", "DELETE"]).optional().describe("Filter by HTTP method"),
+      description: "Search OVH API endpoints by keyword or path pattern. Searches endpoint paths and descriptions across all (or specific) API categories.",
+      inputSchema: {
+        query: z.string().describe("Search keyword (e.g. 'snapshot', 'email', 'kubernetes', 'ip block')"),
+        category: z.string().optional().describe("Limit to API category (e.g. '/vps', '/cloud', '/domain'). Omit to search all."),
+        method: z.enum(["GET", "POST", "PUT", "DELETE"]).optional().describe("Filter by HTTP method"),
+      },
+      annotations: READ_ONLY,
     },
     async ({ query, category, method }) => {
       try {
@@ -105,7 +107,7 @@ export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
           for (let j = 0; j < results.length; j++) {
             const r = results[j];
             if (r.status === "rejected") {
-              errors.push(batch[j]);
+              errors.push(`${batch[j]}: ${r.reason instanceof Error ? r.reason.message : String(r.reason)}`);
               continue;
             }
             for (const ep of r.value) {
@@ -124,8 +126,12 @@ export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
           if (matches.length >= 50) break;
         }
 
+        const failures = errors.length
+          ? `\n\nCould not load ${errors.length} API schema(s), so results are incomplete:\n${errors.map((e) => `- ${e}`).join("\n")}`
+          : "";
         if (!matches.length) {
-          return textResult(`No endpoints matching "${query}"${category ? ` in ${category}` : ""}.`);
+          const none = textResult(`No endpoints matching "${query}"${category ? ` in ${category}` : ""}.${failures}`);
+          return errors.length ? { ...none, isError: true } : none;
         }
 
         const lines = [`# API Search: "${query}" (${matches.length} results)`, ""];
@@ -134,25 +140,29 @@ export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
         }
         if (matches.length > 50) lines.push(`\n... and ${matches.length - 50} more`);
         lines.push("", "Use **ovh_api_endpoint_detail** to see parameters, or **ovh_api_raw** to call directly.");
-        return textResult(lines.join("\n"));
+        const result = textResult(lines.join("\n") + failures);
+        return errors.length ? { ...result, isError: true } : result;
       } catch (err) {
-        return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+        return errorResult(err);
       }
     },
   );
 
-  server.tool(
+  server.registerTool(
     "ovh_api_endpoint_detail",
-    "Get full details for a specific API endpoint (parameters, types, descriptions)",
     {
-      path: z.string().describe("API endpoint path (e.g. /vps/{serviceName}/snapshot)"),
-      method: z.enum(["GET", "POST", "PUT", "DELETE"]).optional().default("GET"),
+      description: "Get full details for a specific API endpoint (parameters, types, descriptions)",
+      inputSchema: {
+        path: z.string().describe("API endpoint path (e.g. /vps/{serviceName}/snapshot)"),
+        method: z.enum(["GET", "POST", "PUT", "DELETE"]).optional().default("GET"),
+      },
+      annotations: READ_ONLY,
     },
     async ({ path: targetPath, method: targetMethod }) => {
       try {
         const apis = await listApis(baseUrl);
         const prefix = "/" + targetPath.replace(/^\//, "").split("/").slice(0, 1)[0];
-        const matchingApis = apis.filter((a) => a.startsWith(prefix));
+        const matchingApis = apis.filter((a) => a === prefix || a.startsWith(prefix + "/"));
 
         for (const api of matchingApis) {
           const endpoints = await getApiSpec(baseUrl, api);
@@ -178,7 +188,7 @@ export function registerExplorerTools(server: McpServer, ovh: OvhClient) {
 
         return textResult(`Endpoint not found: ${targetMethod || "GET"} ${targetPath}`);
       } catch (err) {
-        return { content: [{ type: "text" as const, text: `Error: ${err instanceof Error ? err.message : String(err)}` }], isError: true };
+        return errorResult(err);
       }
     },
   );
