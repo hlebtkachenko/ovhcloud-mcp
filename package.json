@@ -1,6 +1,6 @@
 {
   "name": "ovhcloud-mcp",
-  "version": "2.0.1",
+  "version": "3.0.0",
   "description": "OVHcloud MCP server — VPS, domains, DNS, billing, SSH, API explorer",
   "type": "module",
   "main": "dist/index.js",
@@ -30,7 +30,8 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "tsc && node --test"
+    "test": "tsc && node --test",
+    "check:contract": "tsc && node scripts/check-contract.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.1",
