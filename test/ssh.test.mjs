@@ -12,6 +12,7 @@ let sshd;
 let port;
 let fingerprint;
 const passwordsSeen = [];
+const commandsSeen = [];
 const clients = [];
 
 before(async () => {
@@ -27,6 +28,7 @@ before(async () => {
       conn.on("session", (accept) => {
         accept().on("exec", (acceptExec, _reject, info) => {
           const stream = acceptExec();
+          commandsSeen.push(info.command);
           if (info.command === "fail") {
             stream.stderr.write("synthetic failure\n");
             stream.exit(3);
@@ -51,7 +53,7 @@ after(async () => {
   sshd?.close();
 });
 
-beforeEach(() => { passwordsSeen.length = 0; });
+beforeEach(() => { passwordsSeen.length = 0; commandsSeen.length = 0; });
 
 async function mcp(env) {
   const c = await startServer(null, env);
@@ -87,14 +89,19 @@ test("matching SSH_HOST_KEY connects with env credentials, no warning", async ()
   const r = await call("ovh_ssh_exec", { command: "echo" });
   assert.ok(!r.isError, text(r));
   assert.doesNotMatch(text(r), /not verified/i);
+  assert.deepEqual(commandsSeen, ["echo"]);
   const check = await call("ovh_ssh_check", {});
   assert.ok(!check.isError, text(check));
+  assert.equal(commandsSeen[1], "echo OK && hostname && uptime");
 
   const failed = await call("ovh_ssh_exec", { command: "fail" });
   assert.ok(failed.isError);
   assert.match(text(failed), /Exit code: 3/);
   assert.match(text(failed), /synthetic failure/);
+});
 
+test("a command killed by a signal is an error, not exit 0", async () => {
+  const call = await mcp({ SSH_HOST: "127.0.0.1", SSH_PORT: String(port), SSH_USER: "admin", SSH_PASSWORD: GOOD_PASSWORD });
   const killed = await call("ovh_ssh_exec", { command: "killed" });
   assert.ok(killed.isError);
   assert.match(text(killed), /signal SIGKILL/);

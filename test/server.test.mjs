@@ -83,6 +83,7 @@ test("ovh_vps_ips, reboot, start and stop hit their endpoints", async () => {
 
 test("ovh_vps_snapshot: 404 means no snapshot, other errors are errors", async () => {
   ok(await call("ovh_vps_snapshot", { serviceName: VPS }));
+  assert.deepEqual(apiCalls(fake).map((c) => `${c.method} ${c.path}`), [`GET /vps/${VPS}/snapshot`]);
   fake.override = () => ({ status: 404, body: { message: "The requested object (snapshot) does not exist" } });
   const none = await call("ovh_vps_snapshot", { serviceName: VPS });
   ok(none);
@@ -206,6 +207,7 @@ test("ovh_invoice_detail hides the bill password", async () => {
 
 test("explorer tools fetch {category}.json schemas", async () => {
   ok(await call("ovh_api_catalog"));
+  assert.ok(fake.requests.some((r) => r.method === "GET" && r.rawPath === "/"));
   const s = await call("ovh_api_search", { query: "snapshot", category: "/vps" });
   ok(s);
   assert.match(text(s), /\/vps\/\{serviceName\}\/snapshot/);
