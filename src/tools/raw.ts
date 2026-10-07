@@ -19,7 +19,7 @@ export function registerRawTools(server: McpServer, ovh: OvhClient) {
       method: z.enum(["GET", "POST", "PUT", "DELETE"]).default("GET"),
       path: z.string().describe("API path (e.g. /vps, /me, /domain/zone/example.com/record)"),
       body: z.string().optional().describe("JSON body for POST/PUT"),
-      query: z.record(z.string()).optional(),
+      query: z.record(z.string(), z.string()).optional(),
     },
     async ({ method, path, body, query }) => {
       try {

@@ -8,8 +8,10 @@
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
     "declaration": false,
-    "sourceMap": false
+    "sourceMap": false,
+    "types": ["node"]
   },
   "include": ["src/**/*"]
 }
